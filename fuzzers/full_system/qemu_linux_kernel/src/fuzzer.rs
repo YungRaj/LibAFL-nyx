@@ -218,7 +218,7 @@ pub fn fuzz() {
 
         if state.must_load_initial_inputs() {
             state
-                .load_initial_inputs(&mut fuzzer, &mut executor, &mut mgr, &corpus_dirs)
+                .load_initial_inputs_forced(&mut fuzzer, &mut executor, &mut mgr, &corpus_dirs)
                 .unwrap_or_else(|_| {
                     println!("Failed to load initial corpus at {:?}", &corpus_dirs);
                     process::exit(0);

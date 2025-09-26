@@ -8,6 +8,7 @@ authors = [
 edition = "2021"
 
 [features]
+default = ["nyx"]
 shared = ["libafl_qemu/shared"]
 
 nyx = []

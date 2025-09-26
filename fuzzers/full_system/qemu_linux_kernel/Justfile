@@ -18,25 +18,25 @@ linux_builder_dir: target_dir
         git -C {{ LINUX_BUILDER_DIR }} pull
     fi
 
-update_files api="": target_dir linux_builder_dir (build api)
+update_files api="nyx": target_dir linux_builder_dir (build api)
     cp -r setup/* "{{ LINUX_BUILDER_DIR }}/setup/"
     cp -r runtime/* "{{ LINUX_BUILDER_DIR }}/runtime/"
 
     cp {{ BUILD_DIR }}/include/* "{{ LINUX_BUILDER_DIR }}/setup/"
 
-target api="": linux_builder_dir update_files
+target api="nyx": linux_builder_dir update_files
     {{LINUX_BUILDER_DIR}}/build.sh
 
-build api="":
-    cargo build \
+build api="nyx":
+    RUSTFLAGS=-g cargo build \
       --profile {{ PROFILE }} \
       --target-dir {{ TARGET_DIR }} \
       --features "{{ api }}"
 
-run api="": (build api)
+run api="nyx": (build api)
     #!/bin/bash
 
-    rm -rf corpus_gen
+    sudo rm -rf corpus_gen
 
     # Find the bios dir of LibAFL QEMU
     if [ ! -z "${LIBAFL_QEMU_DIR}" ]; then
@@ -45,23 +45,14 @@ run api="": (build api)
       LIBAFL_QEMU_BIOS_DIR={{ LIBAFL_QEMU_DIR_DEFAULT }}/build/qemu-bundle/usr/local/share/qemu
     fi
 
-    qemu-img create -f qcow2 -o backing_file={{ LINUX_BUILDER_OUT }}/OVMF_CODE.4m.fd -F raw {{ LINUX_BUILDER_OUT }}/OVMF_CODE.4m.qcow2
-    qemu-img create -f qcow2 -o backing_file={{ LINUX_BUILDER_OUT }}/OVMF_VARS.4m.fd -F raw {{ LINUX_BUILDER_OUT }}/OVMF_VARS.4m.qcow2
-    qemu-img create -f qcow2 -o backing_file={{ LINUX_BUILDER_OUT }}/linux.qcow2 -F qcow2 {{ LINUX_BUILDER_OUT }}/linux.tmp.qcow2
+    # qemu-img create -f qcow2 -o backing_file=target/linux_builder/output/OVMF_CODE.4m.fd -F raw target/linux_builder/output/OVMF_CODE.4m.qcow2
+    # qemu-img create -f qcow2 -o backing_file=target/linux_builder/output/OVMF_VARS.4m.fd -F raw target/linux_builder/output/OVMF_VARS.4m.qcow2
+    # qemu-img create -f qcow2 -o backing_file=target/linux_builder/output/linux.qcow2 -F qcow2 target/linux_builder/output/linux.tmp.qcow2
 
-    {{FUZZER}} \
-      -accel tcg \
-      -m 4G \
-      -drive if=pflash,format=qcow2,file="{{ LINUX_BUILDER_OUT }}/OVMF_CODE.4m.qcow2" `# OVMF code pflash` \
-      -drive if=pflash,format=qcow2,file="{{ LINUX_BUILDER_OUT }}/OVMF_VARS.4m.qcow2" `# OVMF vars pflash` \
-      -device ahci,id=ahci,bus=pci.0,addr=4 \
-      -device ide-hd,bus=ahci.0,drive=disk,bootindex=1 \
-      -blockdev driver=file,filename="{{ LINUX_BUILDER_OUT }}/linux.tmp.qcow2",node-name=storage `# Backend file of "disk"` \
-      -blockdev driver=qcow2,file=storage,node-name=disk `# QCOW2 "disk"` \
-      -L "${LIBAFL_QEMU_BIOS_DIR}" \
-      -nographic \
-      -monitor null \
-      -serial null
+    sudo {{FUZZER}} \
+       -machine type=pc-q35-8.2,smm=on,accel=kvm -cpu host,migratable=on -m 16G -smp 32,sockets=1,cores=32,threads=1 -boot strict=on -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd -drive if=pflash,format=raw,file=OVMF_VARS_4M.fd -drive file=ubuntu24.04.qcow2,format=qcow2 -device virtio-balloon-pci -device vfio-pci,host=0000:41:00.0,romfile=/home/ilhanraja/Downloads/nvgpu-bios.bin -device vfio-pci,host=0000:41:00.1 -device vfio-pci,host=0000:4a:00.0 -netdev tap,id=net0,ifname=tap0,script=no,downscript=no -device virtio-net-pci,netdev=net0,romfile= -vga none -nodefaults -serial mon:stdio
+
+      
 
 test: build (build "nyx")
 

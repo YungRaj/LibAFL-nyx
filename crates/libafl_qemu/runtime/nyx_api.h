@@ -112,13 +112,25 @@ typedef volatile struct {
 #if defined(__i386__)
 static inline uint32_t kAFL_hypercall(uint32_t p1, uint32_t p2) {
   uint32_t nr = HYPERCALL_KAFL_RAX_ID;
-  asm volatile("vmcall" : "=a"(nr) : "a"(nr), "b"(p1), "c"(p2));
+  asm volatile("vmmcall" : "=a"(nr) : "a"(nr), "b"(p1), "c"(p2));
   return nr;
 }
 #elif defined(__x86_64__)
 static inline uint64_t kAFL_hypercall(uint64_t p1, uint64_t p2) {
   uint64_t nr = HYPERCALL_KAFL_RAX_ID;
-  asm volatile("vmcall" : "=a"(nr) : "a"(nr), "b"(p1), "c"(p2));
+  uint16_t io_port = 0xFF00;
+  // asm volatile("vmmcall" : "=a"(nr) : "a"(nr), "b"(p1), "c"(p2));
+  asm volatile(
+      "mov %[nr], %%rax\n\t"
+      "mov %[p1], %%rbx\n\t"
+      "mov %[p2], %%rcx\n\t"
+      "mov %[port], %%dx\n\t"
+      "out %%al, %%dx\n\t"  // Send lower 8 bits of RAX to port (triggering hypercall)
+      "mov %%rax, %[nr_out]"
+      : [nr_out] "=r"(nr)
+      : [nr] "r"(nr), [p1] "r"(p1), [p2] "r"(p2), [port] "r"(io_port)
+      : "rax", "rbx", "rcx", "rdx", "memory"
+  );
   return nr;
 }
 #else
