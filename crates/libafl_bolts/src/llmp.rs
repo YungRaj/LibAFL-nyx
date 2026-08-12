@@ -457,6 +457,9 @@ fn msg_offset_from_env(env_name: &str) -> Result<Option<u64>, Error> {
 #[cfg(feature = "std")]
 fn tcp_bind(port: u16) -> Result<TcpListener, Error> {
     let listener = TcpListener::bind((_LLMP_BIND_ADDR, port))
+        .or_else(|_| TcpListener::bind(("::1", port)))
+        .or_else(|_| TcpListener::bind(("0.0.0.0", port)))
+        .or_else(|_| TcpListener::bind(("::", port)))
         .map_err(|err| Error::os_error(err, "Failed to bind to port {port}"))?;
 
     #[cfg(unix)]
@@ -3717,14 +3720,21 @@ where
     /// Create a [`LlmpClient`], getting the ID from a given port, then also tell the restarter's ID so we ask to be removed later
     /// This is called when, for the first time, the restarter attaches to this process.
     pub fn create_attach_to_tcp(mut shmem_provider: SP, port: u16) -> Result<Self, Error> {
-        let mut stream = match TcpStream::connect((IP_LOCALHOST, port)) {
+        let mut connect_fn = || {
+            TcpStream::connect((IP_LOCALHOST, port))
+                .or_else(|_| TcpStream::connect(("::1", port)))
+                .or_else(|_| TcpStream::connect(("127.0.0.1", port)))
+                .or_else(|_| TcpStream::connect(("localhost", port)))
+        };
+
+        let mut stream = match connect_fn() {
             Ok(stream) => stream,
             Err(e) => {
                 match e.kind() {
-                    ErrorKind::ConnectionRefused => {
+                    ErrorKind::ConnectionRefused | ErrorKind::AddrNotAvailable => {
                         //connection refused. loop till the broker is up
                         loop {
-                            if let Ok(stream) = TcpStream::connect((IP_LOCALHOST, port)) {
+                            if let Ok(stream) = connect_fn() {
                                 break stream;
                             }
 
@@ -3734,7 +3744,21 @@ where
                             thread::sleep(Duration::from_millis(50));
                         }
                     }
-                    _ => return Err(Error::illegal_state(e.to_string())),
+                    _ => {
+                        // Retry for a while in case network interface or socket family is coming up
+                        let mut retries = 0;
+                        loop {
+                            if let Ok(stream) = connect_fn() {
+                                break stream;
+                            }
+                            if retries > 100 {
+                                return Err(Error::illegal_state(e.to_string()));
+                            }
+                            retries += 1;
+                            #[cfg(feature = "std")]
+                            thread::sleep(Duration::from_millis(50));
+                        }
+                    }
                 }
             }
         };
